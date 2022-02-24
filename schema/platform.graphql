@@ -1,0 +1,37 @@
+schema {
+    query: Query
+    mutation: Mutation
+}
+
+type Query {
+    getDeviceType(name: ID!): DeviceType
+    allDeviceTypes: [DeviceType]
+    searchDeviceTypes(input: SearchDeviceTypesInput!): [DeviceType]
+}
+
+type Mutation {
+    addDeviceType(input: AddDeviceTypeInput!): DeviceType
+    deleteDeviceType(input: DeleteDeviceTypeInput!): DeviceType
+}
+
+##########    Device Type    #############
+type DeviceType {
+    name: String!
+}
+
+input AddDeviceTypeInput {
+    name: String!
+}
+
+input DeleteDeviceTypeInput {
+    name: String!
+}
+
+input SearchDeviceTypesInput {
+    name: String
+}
+
+# AWS-specific scalar types used.  See https://docs.aws.amazon.com/appsync/latest/devguide/scalars.html#appsync-defined-scalars.
+
+# The AWSDateTime scalar type represents a valid extended ISO 8601 DateTime string. In other words, this scalar type accepts datetime strings of the form YYYY-MM-DDThh:mm:ss.sssZ. The field after the seconds field is a nanoseconds field. It can accept between 1 and 9 digits. The seconds and nanoseconds fields are optional (the seconds field must be specified if the nanoseconds field is to be used). The time zone offset is compulsory for this scalar. The time zone offset must either be Z (representing the UTC time zone) or be in the format ±hh:mm:ss. The seconds field in the timezone offset will be considered valid even though it is not part of the ISO 8601 standard.
+# scalar AWSDateTime

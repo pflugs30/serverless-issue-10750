@@ -1,0 +1,19 @@
+// Used for VSCode extension **GraphQL for VSCode**.  See README.
+{
+  schema: {
+    files: "schema/**/*.graphql"
+  },
+  query: {
+    files: [
+      {
+        match: 'schema/**/*.graphql',
+        parser: 'QueryParser',
+      },
+      {
+        match: 'ui/src/**/*.js', // for js
+        parser: ['EmbeddedQueryParser', { startTag: 'Relay\\.QL`', endTag: '`' }], // parse Relay syntax
+        isRelay: true,
+      },
+    ],
+   },
+}

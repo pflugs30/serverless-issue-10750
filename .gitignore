@@ -1,0 +1,7 @@
+.serverless
+.webpack
+dist
+node_modules
+
+# Normally would not commit environment variables, but including here so there are not build errors after cloning this repo
+# .env*

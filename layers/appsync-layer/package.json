@@ -1,0 +1,21 @@
+{
+  "name": "appsync-layer",
+  "version": "1.0.0",
+  "description": "Contains the packages needed for the Appsync layer",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "appsync"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "2.1074.0",
+    "mysql2": "2.3.3",
+    "p-iteration": "1.1.8",
+    "sequelize": "6.16.1",
+    "uuid": "8.3.2"
+  }
+}

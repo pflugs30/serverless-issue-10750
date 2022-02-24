@@ -1,0 +1,257 @@
+service: platform-appsync
+useDotenv: true
+
+frameworkVersion: ">=3.0.0"
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: ${opt:stage, self:custom.defaultStage}
+  profile: ${opt:stage, self:custom.defaultStage}
+  region: ${opt:region, self:custom.defaultRegion}
+  memorySize: 256 # optional, in MB, default is 1024
+  timeout: 60 # optional, in seconds, default is 6
+  logRetentionInDays: 14 # Default retention days for the Cloudwatch LogGroup
+  versionFunctions: false # optional, default is true
+  deploymentBucket:
+    name: ${self:provider.region}-${aws:accountId}-artifacts
+  environment:
+    KMS_KEY: alias/rds-key
+    SECRET: ${env:SECRET}
+    STAGE: ${self:provider.stage}
+    REGION: ${self:provider.region}
+    IOT_ENDPOINT: ${env:IOT_ENDPOINT}
+    DB_NAME: ${env:DB_NAME}
+    NODE_PATH: "./:/opt/node_modules"
+  vpc:
+    securityGroupIds:
+      - Fn::ImportValue: ServerlessSecurityGroup-${self:provider.stage}
+    subnetIds:
+      - Fn::ImportValue: PrivateSubnet1-${self:provider.stage}
+      - Fn::ImportValue: PrivateSubnet2-${self:provider.stage}
+
+layers:
+  appsync:
+    path: layers/appsync-layer
+    compatibleRuntimes:
+      - nodejs12.x
+    package:
+      patterns:
+        - "!/**"
+        - "node_modules/**"
+
+functions:
+  deviceTypesResolver:
+    handler: src/deviceTypesResolver.handler
+    name: ${self:provider.stage}-deviceTypesResolver
+    description: Handle a graphql operation for device types
+    layers:
+      - { Ref: AppsyncLambdaLayer }
+    role: appsyncDBRole
+    timeout: 300
+    tags:
+      type: appsync
+
+resources:
+  Description: Configures the Platform AppSync - ${self:provider.stage}
+  Resources:
+    appsyncDBRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: appsyncDBRole-${self:provider.stage}
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+            - Effect: Allow
+              Principal:
+                Service: appsync.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: "appsyncDBPolicy-${self:provider.stage}"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - "secretsmanager:GetSecretValue"
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:secretsmanager"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - "secret:DatabaseCredentials*"
+                - Effect: Allow
+                  Action:
+                    - "kms:Decrypt"
+                    - "kms:DescribeKey"
+                  Resource:
+                    - Fn::ImportValue: RDSCredentialsKMSKeyArn-${self:provider.stage}
+                - Effect: Allow
+                  Action:
+                    - "kms:Encrypt"
+                    - "kms:Decrypt"
+                    - "kms:ReEncrypt*"
+                    - "kms:GenerateDataKey*"
+                    - "kms:DescribeKey"
+                  Resource:
+                    - Fn::ImportValue: RDSKMSKeyArn-${self:provider.stage}
+                - Effect: Allow
+                  Action:
+                    - "logs:CreateLogGroup"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                    - "logs:PutMetricFilter"
+                    - "logs:PutRetentionPolicy"
+                  Resource:
+                    - "*"
+                - Effect: Allow
+                  Action:
+                    - ec2:CreateNetworkInterface
+                    - ec2:DescribeNetworkInterfaces
+                    - ec2:DetachNetworkInterface
+                    - ec2:DeleteNetworkInterface
+                  Resource: "*"
+                - Effect: Allow
+                  Action:
+                    - iot:DescribeThing
+                    - iot:DescribeThingGroup
+                    - iot:CreateThingGroup
+                    - iot:DeleteThingGroup
+                    - iot:AddThingToThingGroup
+                    - iot:ListThingGroupsForThing
+                    - iot:RemoveThingFromThingGroup
+                    - iot:UpdateThingShadow
+                  Resource: "*"
+
+    iotAppSyncRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: ${self:provider.stage}-IoTAppSyncServiceRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+            - Effect: Allow
+              Principal:
+                Service: appsync.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: "${self:provider.stage}-IoTAppSyncServicePolicy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - "lambda:InvokeFunction"
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:lambda"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - "function:${self:provider.stage}-deviceTypesResolver"
+
+    iotAppSyncLoggingRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: ${self:provider.stage}-IoTAppSyncLoggingRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: appsync.amazonaws.com
+              Action: "sts:AssumeRole"
+        Policies:
+          - PolicyName: "${self:provider.stage}-IoTAppSyncLoggingPolicy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - "logs:CreateLogGroup"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                    - "logs:PutMetricFilter"
+                    - "logs:PutRetentionPolicy"
+                  Resource:
+                    - "*"
+
+  Outputs:
+    GraphQlUrl:
+      Description: The URL for the GraphQL API endpoint
+      Value:
+        Fn::GetAtt: [GraphQlApi, GraphQLUrl]
+      Export:
+        Name: GraphQlUrl-${self:provider.stage}
+
+plugins:
+  - serverless-webpack
+  - serverless-appsync-plugin
+
+package:
+  individually: true
+
+  # Necessary so that the `appsync-layer` dependencies are not removed
+  # excludeDevDependencies: false
+
+custom:
+  defaultStage: dev
+  defaultRegion: us-east-1
+
+  webpack:
+    excludeFiles: "**/*.spec.js"
+    includeModules:
+      forceExclude:
+        - aws-sdk
+        - mysql2
+        - p-iteration
+        - sequelize
+        - uuid
+      packagePath: "./package.json"
+    webpackConfig: "webpack.config.js"
+    packager: "yarn"
+
+  appSync:
+    name: Platform AppSync ${self:provider.stage}
+    authenticationType: AWS_IAM
+    logConfig:
+      loggingRoleArn: { Fn::GetAtt: [iotAppSyncLoggingRole, Arn] }
+      level: ERROR
+    schema: ./schema/platform.graphql
+    defaultMappingTemplates: # default templates. Useful for Lambda templates that are often repetitive. Will be used if the template is not specified in a resolver
+      request: default-request.vtl
+      response: default-response.vtl
+    mappingTemplates:
+      ####### device types ########
+      - dataSource: ${self:provider.stage}_deviceTypesResolver
+        type: Query
+        field: getDeviceType
+      - dataSource: ${self:provider.stage}_deviceTypesResolver
+        type: Query
+        field: allDeviceTypes
+      - dataSource: ${self:provider.stage}_deviceTypesResolver
+        type: Query
+        field: searchDeviceTypes
+      - dataSource: ${self:provider.stage}_deviceTypesResolver
+        type: Mutation
+        field: addDeviceType
+      - dataSource: ${self:provider.stage}_deviceTypesResolver
+        type: Mutation
+        field: deleteDeviceType
+    serviceRole: ${self:provider.stage}-IoTAppSyncServiceRole
+    dataSources:
+      - type: AWS_LAMBDA
+        name: ${self:provider.stage}_deviceTypesResolver
+        description: Resolver for the Device Types table
+        config:
+          functionName: deviceTypesResolver
+          serviceRoleArn: { Fn::GetAtt: [iotAppSyncRole, Arn] }
